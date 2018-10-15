@@ -1,0 +1,131 @@
+# -*- coding: utf-8 -*-
+# 对账表
+from __future__ import unicode_literals
+
+import re
+import sys
+
+import requests
+from bs4 import BeautifulSoup
+from openpyxl import load_workbook
+
+reload(sys)
+sys.setdefaultencoding('utf8')
+
+Cookie = 'TKT=261bf798566d4a508e84f821fc7cb20a'
+datestart = '2018-8-1'
+datestop = '2018-8-31'
+line = 22                              # line为行数 增加新小区需要更改
+
+
+def getHTMLText(url):
+    user_agent = "Mozilla/5.0 (Windows NT 10.0; WOW64; rv:50.0) Gecko/20100101 Firefox/50.0"
+    accept = 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8'
+    accept_language = 'zh-CN,zh;q=0.8,en-US;q=0.5,en;q=0.3'
+    upgrade = '1'
+    headers = {
+        'User-Agent': user_agent,
+        'Accept': accept,
+        'Accept-Language': accept_language,
+        'Cookie': Cookie
+    }
+    try:
+        r = requests.get(url, headers=headers, verify=False, timeout=30)
+        r.raise_for_status()
+        # r.encoding = 'utf-8'
+        return r.text
+    except:
+        return ""
+
+
+def postHTMLText(url, data):
+    user_agent = "Mozilla/5.0 (Windows NT 10.0; WOW64; rv:50.0) Gecko/20100101 Firefox/50.0"
+    accept = 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8'
+    accept_language = 'zh-CN,zh;q=0.8,en-US;q=0.5,en;q=0.3'
+    upgrade = '1'
+    headers = {
+        'User-Agent': user_agent,
+        'Accept': accept,
+        'Accept-Language': accept_language,
+        'Cookie': Cookie
+    }
+    try:
+        r = requests.post(url, headers=headers, data=data, verify=False, timeout=30)
+        r.raise_for_status()
+        # r.encoding = 'utf-8'
+        return r.text
+    except:
+        return ""
+
+
+def getCommunityId(url):
+    html = getHTMLText(url)
+    re_com = '<option selected="selected" value="(.+?)">(.+?)</option>'
+    communityIdobj = re.compile(re_com)
+    communityId = re.findall(communityIdobj, html)  # 前三个数据无效
+    # print communityId[6].encode('unicode-escape').decode('string_escape')
+    print "获取已安装充电桩小区ID完成"
+    return communityId[3:]
+
+
+def getTotal(url, data):
+    html = postHTMLText(url, data)
+    soup = BeautifulSoup(html, "html.parser")
+    total = soup.select("div.icip_title_box > div.right > span > span")
+    print '正在获取数据...'
+    return float(total[0].get_text().replace(',', '')), float(total[1].get_text().replace(',', ''))
+
+
+def filterCommu():
+    cnamelist = []
+    powerlist = []
+    moneylist = []
+    requests.packages.urllib3.disable_warnings()  # 防止报错
+    urlGetCommunity = "https://bms.fuwuqu.com/TBMS/thirdServer/openSerivceInfo.ht?serviceId=MS201700000002"
+    urlGetTotal = "https://bms.fuwuqu.com/TBMS/order/showList.ht"
+    for cid in getCommunityId(urlGetCommunity):
+        data = {
+            "manufacturerName": "",
+            "manufacturerId": "MN20170228100002",
+            "communityName": cid[1],
+            "communityId": cid[0],
+            "chargeName": "电动车充电费",
+            "chargeNo": "TC1003",
+            "startDate": datestart,
+            "endDate": datestop,
+            "search": "",
+            "pageSize": "50",
+            "pageNum": "1",
+        }
+        total = getTotal(urlGetTotal, data)
+        print cid[1]
+        cnamelist.append(cid[1])
+        powerlist.append(total[0])
+        moneylist.append(total[1])
+    print "爬取服务区完成"
+    return cnamelist, powerlist, moneylist
+
+
+def savetoExcel():
+    list3 = filterCommu()
+    cnamesinexcel = []
+    thlist = []
+    workbook_ = load_workbook(u'E:/安充宝 项目/钱/pyexcel.xlsx')
+    print "打开Excel模版"
+    sheetnames = workbook_.sheetnames
+    sheet = workbook_.get_sheet_by_name(sheetnames[0])
+    for th, i in enumerate(range(4, line+1)):
+        cnamesinexcel.append(sheet.cell(row=i, column=2).value)
+        thlist.append(th)
+    print "正在写入数据..."
+    for th, i in enumerate(list3[0]):
+        if i in cnamesinexcel:
+            index = cnamesinexcel.index(i)
+            sheet['J' + str(index + 4)] = float(list3[1][th])
+            sheet['L' + str(index + 4)] = float(list3[2][th])
+    print "写入完成！"
+    workbook_.save(u"E:/安充宝 项目/钱/2018年8月安充宝对账表_非正式.xlsx")
+
+
+if __name__ == "__main__":
+    savetoExcel()
